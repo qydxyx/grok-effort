@@ -1,5 +1,5 @@
-name: grok-effort-low
-version: 1.0.0
-description: Force reasoning.effort=low for effort-capable Grok models, ignoring the global setting. Also allow grok-4.7 to receive the field.
-author: qydxyx
+name: grok-effort
+version: 1.1.0
+description: Set reasoning.effort for effort-capable Grok models (GROK_EFFORT=low|medium|high|xhigh, default medium). Also allow grok-4.7 to receive the field.
+author: local
 kind: standalone
