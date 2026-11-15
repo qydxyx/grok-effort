@@ -1,10 +1,26 @@
-"""Set reasoning.effort for effort-capable Grok models.
+"""Force ``reasoning.effort`` for effort-capable Grok models.
 
-Config overrides are exact model names, and the xAI wire drops ``reasoning.effort``
-unless ``grok_supports_reasoning_effort`` is true. grok-4.7 accepts low/medium/high/xhigh
-but is missing from the stock allowlist, so an override never leaves the process.
-This plugin adds grok-4.7 and overwrites the outgoing effort for every allowlisted
-Grok model. Models that 400 on the parameter are left alone.
+Two things keep a Grok effort setting from reaching the xAI wire, and this plugin
+fixes exactly those two — no transport patching:
+
+1. ``agent.model_metadata._GROK_EFFORT_CAPABLE_PREFIXES`` gates whether the xAI
+   branch of ``_reasoning_fields`` emits ``reasoning.effort`` at all. grok-4.7
+   accepts the field but is absent from the stock allowlist, so we extend the
+   prefix tuple.
+
+2. ``hermes_constants.resolve_reasoning_config`` is the single chokepoint that
+   turns config into ``reasoning_config`` for every surface (CLI, gateway, TUI,
+   cron, ``/model``). We override it so allowlisted Grok models always resolve to
+   ``GROK_EFFORT`` (default ``medium``) regardless of the global
+   ``agent.reasoning_effort``.
+
+Both patches mutate module state that upstream re-reads at call time, so nothing
+else needs wrapping. An earlier revision also monkeypatched
+``agent.transports.codex._reasoning_fields``; that wrapper hardcoded the old
+signature and broke every xAI request with ``TypeError: got an unexpected keyword
+argument 'profile_reasoning'`` once upstream grew that parameter. It was pure
+duplication — the upstream xAI branch already re-checks the allowlist and reads
+``effort`` from the ``reasoning_config`` we control — so it is gone.
 
 Effort is adjustable: env ``GROK_EFFORT`` (low|medium|high|xhigh), default medium.
 """
@@ -33,10 +49,9 @@ def _effort() -> str:
 def register(ctx) -> None:
     del ctx
     try:
-        from agent import model_metadata
-        from agent.transports import codex as codex_mod
-        from hermes_constants import resolve_reasoning_config as _resolve_reasoning_config
         import hermes_constants
+        from agent import model_metadata
+        from hermes_constants import resolve_reasoning_config as _stock_resolve
     except Exception:
         logger.exception("grok-effort: could not import reasoning helpers")
         return
@@ -46,28 +61,14 @@ def register(ctx) -> None:
     effort = _effort()
 
     def resolve_reasoning_config(cfg, model=""):
+        # ``grok_supports_reasoning_effort`` reads the prefix tuple we just widened,
+        # so grok-4.7 is covered here without a separate branch.
         if model and model_metadata.grok_supports_reasoning_effort(model):
             return {"enabled": True, "effort": effort}
-        return _resolve_reasoning_config(cfg, model)
+        return _stock_resolve(cfg, model)
 
     hermes_constants.resolve_reasoning_config = resolve_reasoning_config
 
-    original_fields = codex_mod._reasoning_fields
-
-    def _reasoning_fields(
-        model, params, *, effort, enabled, replay_encrypted_reasoning,
-        is_xai_responses, is_github_responses,
-    ):
-        if is_xai_responses and model_metadata.grok_supports_reasoning_effort(model):
-            effort = _effort()
-            enabled = True
-        return original_fields(
-            model, params, effort=effort, enabled=enabled,
-            replay_encrypted_reasoning=replay_encrypted_reasoning,
-            is_xai_responses=is_xai_responses, is_github_responses=is_github_responses,
-        )
-
-    codex_mod._reasoning_fields = _reasoning_fields
     logger.info(
         "grok-effort: effort-capable Grok models forced to %s; allowlist=%s",
         effort,
