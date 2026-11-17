@@ -1,5 +1,5 @@
 name: grok-effort
-version: 1.2.0
-description: Set reasoning.effort for effort-capable Grok models (GROK_EFFORT=low|medium|high|xhigh, default medium). Also allow grok-4.7 to receive the field. No transport patching.
-author: local
+version: 1.3.0
+description: Set reasoning.effort for effort-capable Grok models (GROK_EFFORT=low|medium|high|xhigh, default low). Also allow grok-4.7 to receive the field and to reach xhigh. No transport patching.
+author: qydxyx
 kind: standalone
